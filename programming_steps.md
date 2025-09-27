@@ -1,14 +1,14 @@
 ## Programming Steps
 
-The first step is to retrieve the commits from the target repository passerelle.
-To do this, you must first clone the repository, then use either the GitPython package or subprocess to extract the authors and commit dates.
+The first step is to retrieve the commits from the target repository `passerelle`.
+To do this, you must first clone the repository, then use either the GitPython package or `subprocess` to extract the authors and commit dates.
 My first development branch also displayed the commit description, but this information is not needed to calculate the on-hours / off-hours ratio.
 
 The second step is to determine whether a commit was made off-hours (weekends or before 8 a.m. and after 8 p.m.).
-The weekday() function can be used to identify weekdays, and the hour attribute of a datetime object gives the time.
+The `weekday()` function can be used to identify weekdays, and the `hour` attribute of a datetime object gives the time.
 
 The third step is to calculate the ratio of off-hours commits relative to the total number of commits.
-In practice, using a defaultdict turned out to be useful for incrementing a list when the key does not yet exist.
+In practice, using a `defaultdict` turned out to be useful for incrementing a list when the key does not yet exist.
 The problem with this ratio is that it is not very meaningful for contributors with very few commits: for example, a contributor with only one off-hours commit would end up with a ratio of 100%.
 
 To make the score more meaningful, we can compute an index based on the global average number of off-hours commits:
