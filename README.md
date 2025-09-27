@@ -14,8 +14,7 @@ This Python script analyzes Git commits to identify **off-hours contributions**,
 - Computes for each author:
   - **Off-hours commit rate** (weekends or before 8am / after 8pm)
   - **Total number of commits**
-  - **Off-hours score** (rate × total commits)
-  - **Relative index** compared to the average score
+  - **Relative index** compared to the average number of Off-hours commits
 - Outputs authors **sorted by descending index** (highest off-hours contributors first).
 
 ---
@@ -51,17 +50,16 @@ python burnout.py --since 2025-08-01
 
 The script prints a table like this:
 
-| Author   | Rate  | Total | Score | Index |
-|----------|-------|-------|-------|-------|
-| Alice    | 0.25  | 40    | 10    | 1.2   |
-| Charlie  | 0.30  | 30    | 9     | 1.1   |
-| Bob      | 0.10  | 50    | 5     | 0.6   |
+| Author   | Rate  | Total | Index |
+|----------|-------|-------|-------|
+| Alice    | 0.25  | 40    | 1.2   |
+| Charlie  | 0.30  | 30    | 1.1   |
+| Bob      | 0.10  | 50    | 0.6   |
 
 **Columns explanation:**
 - **Rate** → fraction of off-hours commits (0–1)  
-- **Total** → total number of commits  
-- **Score** → number of off-hours commits  
-- **Index** → relative score compared to the average (1 = average, >1 = above average)  
+- **Total** → total number of commits
+- **Index** → relative off-hours commits compared to the average (1 = average, >1 = above average)  
 
 👉 The table is always **sorted in descending order of Index**, so the authors with the highest relative off-hours activity appear first.
 

@@ -36,18 +36,18 @@ def get_commits(since=None):
     """
     if USE_GITPYTHON:
         repo = Repo(LOCAL_PATH)
+        branch = repo.active_branch.name
 
         # add filter
         kwargs = {}
         if since:
             kwargs["since"] = since
-        commits = repo.iter_commits("master", **kwargs)
+        commits = repo.iter_commits(branch, **kwargs)
         # retrieve commits
         for commit in commits:
             yield (
                 commit.author.name,
                 datetime.fromtimestamp(commit.committed_date),
-                commit.message.strip(),
             )
     else:
         cmd = ["git", "-C", LOCAL_PATH, "log"]
@@ -55,12 +55,12 @@ def get_commits(since=None):
         # add filter
         if since:
             cmd.append(f"--since={since}")
-        cmd.append("--pretty=format:%an|%ct|%s")
+        cmd.append("--pretty=format:%an|%ct")
         output = subprocess.check_output(cmd, text=True)
         # retrieve commits
         for line in output.splitlines():
-            author, timestamp, message = line.split("|", 2)
-            yield author, datetime.fromtimestamp(int(timestamp)), message
+            author, timestamp = line.split("|", 1)
+            yield author, datetime.fromtimestamp(int(timestamp)),
 
 
 def is_off_hours(commit_date):
@@ -90,47 +90,31 @@ def compute_off_hours_rate(commits):
     total_commits = defaultdict(int)
     off_hours_commits = defaultdict(int)
 
-    for author, commit_date, _ in commits:
+    for author, commit_date in commits:
         if is_off_hours(commit_date):
             off_hours_commits[author] += 1
         total_commits[author] += 1
 
     rate = {}
     for author in total_commits:
-        rate[author] = off_hours_commits[author] / total_commits[author]
-    return total_commits, rate
+        rate[author] = round(off_hours_commits[author] / total_commits[author], 2)
+    return total_commits, off_hours_commits, rate
 
 
-def compute_score(total_commits, rate):
-    """
-    Calculates the score for each author based on their total commits and a given rate.
-
-    :param total_commits: The total number of commit for each author
-    :param rate: The commit rate for each author
-    :return: A dictionary where the keys are authors and the values
-    are the product of the rate for each author and their total commits.
-    """
-    score_commits = defaultdict(int)
-
-    for author in total_commits:
-        score_commits[author] = rate[author] * total_commits[author]
-    return score_commits
-
-
-def compute_score_index(score_commits):
+def compute_score_index(off_hours_commits):
     """
     Calculates a score index for each author based on their commit scores relative to the mean score.
 
-    :param score_commits: A dictionary where the keys are authors and the values are their corresponding scores.
+    :param off_hours_commits: A dictionary where the keys are authors and the values are off-hours commits.
     :return: A dictionary where each author from the input `score_commits` is mapped
     to their score divided by the mean score of all authors' scores.
     """
     score_index_commits = defaultdict(int)
-    scores = list(score_commits.values())
-    mean_score = sum(scores) / len(scores) if scores else 0
+    off_hours_number = list(off_hours_commits.values())
+    mean_score = sum(off_hours_number) / len(off_hours_number) if off_hours_number else 0
 
-    for author, score in score_commits.items():
-        score_index_commits[author] = score / mean_score if mean_score else 0
+    for author, off_hours_number in off_hours_commits.items():
+        score_index_commits[author] = round(off_hours_number / mean_score, 2) if mean_score else 0
 
     return score_index_commits
 
@@ -144,19 +128,17 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     clone_repo()
-    total_commits, rate_commits = compute_off_hours_rate(get_commits(since=args.since))
-    score_commits = compute_score(total_commits, rate_commits)
-    score_index_commits = compute_score_index(score_commits)
+    total_commits, off_hours_commits, rate_commits = compute_off_hours_rate(get_commits(since=args.since))
+    score_index_commits = compute_score_index(off_hours_commits)
     sorted_score_index_commits = sorted(
         score_index_commits.items(), key=lambda x: x[1], reverse=True
     )
 
-    print("Author", "Rate", "Total", "Score", "Index")
-    for author, stat in sorted_score_index_commits:
+    print("Author", "Rate", "Total", "Index")
+    for author, score_index in sorted_score_index_commits:
         print(
             author,
             rate_commits[author],
             total_commits[author],
-            score_commits[author],
-            stat,
+            score_index,
         )
