@@ -1,7 +1,7 @@
 # Burnout Passerelle Entr Ouvert Git Analysis
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-GPLv3-blue)
 
 This Python script analyzes Git commits to identify **off-hours contributions**, aiming to detect potential risks of overload or burnout among developers.
 
