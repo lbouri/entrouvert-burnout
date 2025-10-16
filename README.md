@@ -33,7 +33,7 @@ pip install GitPython
 ## Usage
 
 ```bash
-python burnout.py [--since YYYY-MM-DD]
+python burnout.py [--since YYYY-MM-DD] [--repo-url URL] [--repo-name NAME]
 ```
 
 ## Options
@@ -42,9 +42,11 @@ python burnout.py [--since YYYY-MM-DD]
   Start date to filter commits.  
   If not provided, all commits from the repository history are retrieved.
 
-```bash
-python burnout.py --since 2025-08-01
-```
+- `--repo-url URL`
+  HTTPS Git repository URL to clone and analyze.
+
+- `--repo-name NAME`
+  Local folder name for the cloned repository (letters, numbers, dashes, and underscores only).
 
 ## Output
 
