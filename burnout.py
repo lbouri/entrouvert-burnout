@@ -6,9 +6,11 @@ import unicodedata
 from collections import defaultdict
 from datetime import datetime
 
+# Remote repository to analyze
 REPO_URL = "https://git.entrouvert.org/entrouvert/passerelle.git"
 LOCAL_PATH = "./passerelle_repo"
 
+# Check if GitPython is available
 try:
     from git import Repo
 
@@ -18,7 +20,18 @@ except ImportError:
 
 
 def validate_since(since_str):
-    """Validate the since date format YYYY-MM-DD"""
+    """
+    Validate the format of the date provided to the --since argument.
+
+    Args:
+        since_str (str): Date string in YYYY-MM-DD format.
+
+    Raises:
+        ValueError: If the format does not match YYYY-MM-DD.
+
+    Returns:
+        str: The validated date string.
+    """
     if since_str is None:
         return None
     pattern = r"^\d{4}-\d{2}-\d{2}$"
@@ -30,7 +43,17 @@ def validate_since(since_str):
 
 
 def normalize_author(author):
-    """Lowercase and remove accents to unify author names"""
+    """
+    Normalize the author's name:
+      - Convert to lowercase
+      - Remove accents and diacritics
+
+    Args:
+        author (str): Author's name
+
+    Returns:
+        str: Normalized name (lowercase, accent-free)
+    """
     if not author:
         return ""
     author = author.lower()
@@ -40,6 +63,10 @@ def normalize_author(author):
 
 
 def clone_repo():
+    """
+    Clone the remote Git repository if the local directory does not already exist.
+    Uses GitPython if available, otherwise subprocess.
+    """
     if not os.path.exists(LOCAL_PATH):
         print("Cloning repository...")
         if USE_GITPYTHON:
@@ -49,6 +76,15 @@ def clone_repo():
 
 
 def get_commits(since=None):
+    """
+    Retrieve the list of commits (author + date) from the repository.
+
+    Args:
+        since (str, optional): Start date in YYYY-MM-DD format.
+
+    Yields:
+        tuple: (author, datetime)
+    """
     if USE_GITPYTHON:
         repo = Repo(LOCAL_PATH)
         branch = repo.active_branch.name
@@ -73,6 +109,15 @@ def get_commits(since=None):
 
 
 def is_off_hours(commit_date):
+    """
+    Determine whether a commit was made outside regular working hours.
+
+    Args:
+        commit_date (datetime): The commit date and time.
+
+    Returns:
+        bool: True if the commit was made on a weekend or before 8 AM / after 8 PM.
+    """
     if commit_date.weekday() >= 5:
         return True
     if commit_date.hour < 8 or commit_date.hour > 20:
@@ -81,6 +126,18 @@ def is_off_hours(commit_date):
 
 
 def compute_off_hours_rate(commits):
+    """
+    Compute the rate of commits made outside regular working hours.
+
+    Args:
+        commits (iterable): Iterable of tuples (author, datetime)
+
+    Returns:
+        tuple(dict, dict, dict):
+            - total_commits: total commits per author
+            - off_hours_commits: commits made outside working hours per author
+            - rate: proportion of off-hours commits (0–1)
+    """
     total_commits = defaultdict(int)
     off_hours_commits = defaultdict(int)
 
@@ -98,6 +155,16 @@ def compute_off_hours_rate(commits):
 
 
 def compute_score_index(off_hours_commits):
+    """
+    Compute a relative score index for each author based on the average number
+    of commits made outside regular working hours.
+
+    Args:
+        off_hours_commits (dict): Number of off-hours commits per author
+
+    Returns:
+        dict: Relative index per author (1.0 = average)
+    """
     score_index_commits = defaultdict(int)
     values = list(off_hours_commits.values())
     mean_score = sum(values) / len(values) if values else 0
@@ -109,11 +176,11 @@ def compute_score_index(off_hours_commits):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Analyse git commits")
+    parser = argparse.ArgumentParser(description="Git commit activity analysis")
     parser.add_argument(
         "--since",
         type=validate_since,
-        help="Start date since when commits should be retrieved (YYYY-MM-DD)",
+        help="Start date for commit retrieval (YYYY-MM-DD)",
     )
     args = parser.parse_args()
 

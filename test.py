@@ -15,9 +15,9 @@ class TestGitAnalysis(unittest.TestCase):
         self.assertEqual(normalize_author("JOHN DOE"), "john doe")
 
     def test_is_off_hours(self):
-        self.assertTrue(is_off_hours(datetime(2025, 10, 18, 7, 0)))  # samedi
-        self.assertTrue(is_off_hours(datetime(2025, 10, 14, 21, 0)))  # après 20h
-        self.assertFalse(is_off_hours(datetime(2025, 10, 14, 10, 0)))  # jour ouvré
+        self.assertTrue(is_off_hours(datetime(2025, 10, 18, 7, 0)))
+        self.assertTrue(is_off_hours(datetime(2025, 10, 14, 21, 0)))
+        self.assertFalse(is_off_hours(datetime(2025, 10, 14, 10, 0)))
 
     def test_compute_off_hours_rate(self):
         commits = [
