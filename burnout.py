@@ -6,8 +6,8 @@ import unicodedata
 from collections import defaultdict
 from datetime import datetime
 
-# Remote repository to analyze
-REPO_URL = "https://git.entrouvert.org/entrouvert/passerelle.git"
+# Default repository URL
+DEFAULT_REPO_URL = "https://git.entrouvert.org/entrouvert/passerelle.git"
 LOCAL_PATH = "./passerelle_repo"
 
 # Check if GitPython is available
@@ -42,6 +42,42 @@ def validate_since(since_str):
     return since_str
 
 
+def sanitize_repo_name(name):
+    """
+    Ensure the repository name is safe (no path traversal or special characters).
+
+    Args:
+        name (str): Repository folder name.
+
+    Raises:
+        ValueError: If the name contains unsafe characters.
+
+    Returns:
+        str: The sanitized repository name.
+    """
+    if not re.match(r"^[\w\-]+$", name):  # allows letters, digits, underscore, dash
+        raise ValueError(f"Unsafe repository name: {name}")
+    return name
+
+
+def sanitize_repo_url(url):
+    """
+    Validate and sanitize the repository URL.
+
+    Args:
+        url (str): Git repository URL.
+
+    Raises:
+        ValueError: If the URL is not a valid HTTPS Git URL.
+
+    Returns:
+        str: The validated URL.
+    """
+    if not re.match(r"^https://[\w.\-]+/[\w.\-]+/[\w.\-]+\.git$", url):
+        raise ValueError(f"Invalid repository URL: {url}")
+    return url
+
+
 def normalize_author(author):
     """
     Normalize the author's name:
@@ -62,31 +98,32 @@ def normalize_author(author):
     return author
 
 
-def clone_repo():
+def clone_repo(repo_url, local_path):
     """
     Clone the remote Git repository if the local directory does not already exist.
     Uses GitPython if available, otherwise subprocess.
     """
-    if not os.path.exists(LOCAL_PATH):
-        print("Cloning repository...")
+    if not os.path.exists(local_path):
+        print(f"Cloning repository from {repo_url} into {local_path} ...")
         if USE_GITPYTHON:
-            Repo.clone_from(REPO_URL, LOCAL_PATH)
+            Repo.clone_from(repo_url, local_path)
         else:
-            subprocess.run(["git", "clone", REPO_URL, LOCAL_PATH], check=True)
+            subprocess.run(["git", "clone", repo_url, local_path], check=True)
 
 
-def get_commits(since=None):
+def get_commits(local_path, since=None):
     """
     Retrieve the list of commits (author + date) from the repository.
 
     Args:
+        local_path (str): Local repository path.
         since (str, optional): Start date in YYYY-MM-DD format.
 
     Yields:
         tuple: (author, datetime)
     """
     if USE_GITPYTHON:
-        repo = Repo(LOCAL_PATH)
+        repo = Repo(local_path)
         branch = repo.active_branch.name
         kwargs = {}
         if since:
@@ -98,7 +135,7 @@ def get_commits(since=None):
                 datetime.fromtimestamp(commit.committed_date),
             )
     else:
-        cmd = ["git", "-C", LOCAL_PATH, "log"]
+        cmd = ["git", "-C", local_path, "log"]
         if since:
             cmd.append(f"--since={since}")
         cmd.append("--pretty=format:%an|%ct")
@@ -182,10 +219,24 @@ if __name__ == "__main__":
         type=validate_since,
         help="Start date for commit retrieval (YYYY-MM-DD)",
     )
+    parser.add_argument(
+        "--repo-name",
+        type=sanitize_repo_name,
+        default="passerelle_repo",
+        help="Local folder name for the cloned repository (letters, numbers, dashes, underscores only).",
+    )
+    parser.add_argument(
+        "--repo-url",
+        type=sanitize_repo_url,
+        default=DEFAULT_REPO_URL,
+        help="HTTPS Git repository URL (default: passerelle.git).",
+    )
     args = parser.parse_args()
 
-    clone_repo()
-    commits = get_commits(since=args.since)
+    LOCAL_PATH = f"./{args.repo_name}"
+
+    clone_repo(args.repo_url, LOCAL_PATH)
+    commits = get_commits(LOCAL_PATH, since=args.since)
     total_commits, off_hours_commits, rate_commits = compute_off_hours_rate(commits)
     score_index_commits = compute_score_index(off_hours_commits)
     sorted_score_index_commits = sorted(
