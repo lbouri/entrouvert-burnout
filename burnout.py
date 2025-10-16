@@ -1,13 +1,16 @@
 import argparse
 import os
+import re
 import subprocess
+import unicodedata
 from collections import defaultdict
 from datetime import datetime
 
-REPO_URL = "https://git.entrouvert.org/entrouvert/passerelle.git"
+# Default repository URL
+DEFAULT_REPO_URL = "https://git.entrouvert.org/entrouvert/passerelle.git"
 LOCAL_PATH = "./passerelle_repo"
 
-# Trying to import GitPython
+# Check if GitPython is available
 try:
     from git import Repo
 
@@ -16,62 +19,141 @@ except ImportError:
     USE_GITPYTHON = False
 
 
-def clone_repo():
+def validate_since(since_str):
     """
-    Clones a repository either using GitPython or subprocess.
+    Validate the format of the date provided to the --since argument.
+
+    Args:
+        since_str (str): Date string in YYYY-MM-DD format.
+
+    Raises:
+        ValueError: If the format does not match YYYY-MM-DD.
+
+    Returns:
+        str: The validated date string.
     """
-    if not os.path.exists(LOCAL_PATH):
-        print("Cloning repository...")
+    if since_str is None:
+        return None
+    pattern = r"^\d{4}-\d{2}-\d{2}$"
+    if not re.match(pattern, since_str):
+        raise ValueError(
+            f"Invalid date format for --since: {since_str}. Expected YYYY-MM-DD."
+        )
+    return since_str
+
+
+def sanitize_repo_name(name):
+    """
+    Ensure the repository name is safe (no path traversal or special characters).
+
+    Args:
+        name (str): Repository folder name.
+
+    Raises:
+        ValueError: If the name contains unsafe characters.
+
+    Returns:
+        str: The sanitized repository name.
+    """
+    if not re.match(r"^[\w\-]+$", name):  # allows letters, digits, underscore, dash
+        raise ValueError(f"Unsafe repository name: {name}")
+    return name
+
+
+def sanitize_repo_url(url):
+    """
+    Validate and sanitize the repository URL.
+
+    Args:
+        url (str): Git repository URL.
+
+    Raises:
+        ValueError: If the URL is not a valid HTTPS Git URL.
+
+    Returns:
+        str: The validated URL.
+    """
+    if not re.match(r"^https://[\w.\-]+/[\w.\-]+/[\w.\-]+\.git$", url):
+        raise ValueError(f"Invalid repository URL: {url}")
+    return url
+
+
+def normalize_author(author):
+    """
+    Normalize the author's name:
+      - Convert to lowercase
+      - Remove accents and diacritics
+
+    Args:
+        author (str): Author's name
+
+    Returns:
+        str: Normalized name (lowercase, accent-free)
+    """
+    if not author:
+        return ""
+    author = author.lower()
+    author = unicodedata.normalize("NFKD", author)
+    author = "".join(c for c in author if not unicodedata.combining(c))
+    return author
+
+
+def clone_repo(repo_url, local_path):
+    """
+    Clone the remote Git repository if the local directory does not already exist.
+    Uses GitPython if available, otherwise subprocess.
+    """
+    if not os.path.exists(local_path):
+        print(f"Cloning repository from {repo_url} into {local_path} ...")
         if USE_GITPYTHON:
-            Repo.clone_from(REPO_URL, LOCAL_PATH)
+            Repo.clone_from(repo_url, local_path)
         else:
-            subprocess.run(["git", "clone", REPO_URL, LOCAL_PATH], check=True)
+            subprocess.run(["git", "clone", repo_url, local_path], check=True)
 
 
-def get_commits(since=None):
+def get_commits(local_path, since=None):
     """
-    Retrieves commits from a Git repository either using GitPython library or subprocess with Git command.
+    Retrieve the list of commits (author + date) from the repository.
 
-    :param since: Filter the commits based on a specific date.
+    Args:
+        local_path (str): Local repository path.
+        since (str, optional): Start date in YYYY-MM-DD format.
+
+    Yields:
+        tuple: (author, datetime)
     """
     if USE_GITPYTHON:
-        repo = Repo(LOCAL_PATH)
+        repo = Repo(local_path)
         branch = repo.active_branch.name
-
-        # add filter
         kwargs = {}
         if since:
             kwargs["since"] = since
         commits = repo.iter_commits(branch, **kwargs)
-        # retrieve commits
         for commit in commits:
             yield (
-                commit.author.name,
+                normalize_author(commit.author.name),
                 datetime.fromtimestamp(commit.committed_date),
             )
     else:
-        cmd = ["git", "-C", LOCAL_PATH, "log"]
-
-        # add filter
+        cmd = ["git", "-C", local_path, "log"]
         if since:
             cmd.append(f"--since={since}")
         cmd.append("--pretty=format:%an|%ct")
         output = subprocess.check_output(cmd, text=True)
-        # retrieve commits
         for line in output.splitlines():
             author, timestamp = line.split("|", 1)
-            yield author, datetime.fromtimestamp(int(timestamp)),
+            yield normalize_author(author), datetime.fromtimestamp(int(timestamp))
 
 
 def is_off_hours(commit_date):
     """
-    Determines if a given commit date is during non-working hours.
+    Determine whether a commit was made outside regular working hours.
 
-    :param commit_date: Datetime of the commit
+    Args:
+        commit_date (datetime): The commit date and time.
 
-    :return: The function `is_off_hours(commit_date)` returns `True` if the commit date is on a weekend
-    (Saturday or Sunday) or if the commit time is before 8 AM or after 8 PM. Otherwise, it returns
-    `False`.
+    Returns:
+        bool: True if the commit was made on a weekend or before 8 AM / after 8 PM.
     """
     if commit_date.weekday() >= 5:
         return True
@@ -82,10 +164,16 @@ def is_off_hours(commit_date):
 
 def compute_off_hours_rate(commits):
     """
-    Calculates the off-hours commit rate for each author based on their total commits and off-hours commits.
+    Compute the rate of commits made outside regular working hours.
 
-    :param commits: Commit object, contains Author and Datetime
-    :return: Returns two dictionaries: `total_commits` and `rate`.
+    Args:
+        commits (iterable): Iterable of tuples (author, datetime)
+
+    Returns:
+        tuple(dict, dict, dict):
+            - total_commits: total commits per author
+            - off_hours_commits: commits made outside working hours per author
+            - rate: proportion of off-hours commits (0–1)
     """
     total_commits = defaultdict(int)
     off_hours_commits = defaultdict(int)
@@ -95,40 +183,61 @@ def compute_off_hours_rate(commits):
             off_hours_commits[author] += 1
         total_commits[author] += 1
 
-    rate = {}
-    for author in total_commits:
-        rate[author] = round(off_hours_commits[author] / total_commits[author], 2)
+    rate = {
+        author: round(off_hours_commits[author] / total_commits[author], 2)
+        for author in total_commits
+    }
+
     return total_commits, off_hours_commits, rate
 
 
 def compute_score_index(off_hours_commits):
     """
-    Calculates a score index for each author based on their commit scores relative to the mean score.
+    Compute a relative score index for each author based on the average number
+    of commits made outside regular working hours.
 
-    :param off_hours_commits: A dictionary where the keys are authors and the values are off-hours commits.
-    :return: A dictionary where each author from the input `score_commits` is mapped
-    to their score divided by the mean score of all authors' scores.
+    Args:
+        off_hours_commits (dict): Number of off-hours commits per author
+
+    Returns:
+        dict: Relative index per author (1.0 = average)
     """
     score_index_commits = defaultdict(int)
-    off_hours_number = list(off_hours_commits.values())
-    mean_score = sum(off_hours_number) / len(off_hours_number) if off_hours_number else 0
+    values = list(off_hours_commits.values())
+    mean_score = sum(values) / len(values) if values else 0
 
-    for author, off_hours_number in off_hours_commits.items():
-        score_index_commits[author] = round(off_hours_number / mean_score, 2) if mean_score else 0
+    for author, value in off_hours_commits.items():
+        score_index_commits[author] = round(value / mean_score, 2) if mean_score else 0
 
     return score_index_commits
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Analyses of git commits")
+    parser = argparse.ArgumentParser(description="Git commit activity analysis")
     parser.add_argument(
         "--since",
-        type=str,
-        help="Start date since when commits should be retrieved (YYYY-MM-DD)",
+        type=validate_since,
+        help="Start date for commit retrieval (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--repo-name",
+        type=sanitize_repo_name,
+        default="passerelle_repo",
+        help="Local folder name for the cloned repository (letters, numbers, dashes, underscores only).",
+    )
+    parser.add_argument(
+        "--repo-url",
+        type=sanitize_repo_url,
+        default=DEFAULT_REPO_URL,
+        help="HTTPS Git repository URL (default: passerelle.git).",
     )
     args = parser.parse_args()
-    clone_repo()
-    total_commits, off_hours_commits, rate_commits = compute_off_hours_rate(get_commits(since=args.since))
+
+    LOCAL_PATH = f"./{args.repo_name}"
+
+    clone_repo(args.repo_url, LOCAL_PATH)
+    commits = get_commits(LOCAL_PATH, since=args.since)
+    total_commits, off_hours_commits, rate_commits = compute_off_hours_rate(commits)
     score_index_commits = compute_score_index(off_hours_commits)
     sorted_score_index_commits = sorted(
         score_index_commits.items(), key=lambda x: x[1], reverse=True
@@ -136,9 +245,4 @@ if __name__ == "__main__":
 
     print("Author", "Rate", "Total", "Index")
     for author, score_index in sorted_score_index_commits:
-        print(
-            author,
-            rate_commits[author],
-            total_commits[author],
-            score_index,
-        )
+        print(author, rate_commits[author], total_commits[author], score_index)
